@@ -118,8 +118,8 @@ struct BenchmarkItem {
 }
 
 fn main() {
-    benchmark();
-    return;
+    // benchmark();
+    // return;
 
     let font_paths = glob::glob("c:/work/content/fonts/notofonts/fonts/**/hinted/ttf/*.ttf")
         .unwrap()

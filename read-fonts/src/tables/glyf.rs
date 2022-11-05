@@ -31,10 +31,81 @@ impl<'a> Glyph<'a> {
 // the interim?
 
 impl<'a> SimpleGlyph<'a> {
+    /// Returns the total number of points.
+    pub fn num_points(&self) -> usize {
+        self.end_pts_of_contours()
+            .last()
+            .map(|last| last.get() as usize + 1)
+            .unwrap_or(0)
+    }
+
+    /// Reads points and flags into the specified slices.
+    pub fn read_points(&self, points: &mut [Point], flags: &mut [u8]) -> bool {
+        self.read_points_impl(points, flags).is_some()
+    }
+
     /// Returns an iterator over the points in the glyph.
-    pub fn points(&self) -> impl Iterator<Item = Point> + 'a + Clone {
+    pub fn points(&self) -> impl Iterator<Item = CurvePoint> + 'a + Clone {
         self.points_impl()
             .unwrap_or_else(|| PointIter::new(&[], &[], &[]))
+    }
+
+    fn read_points_impl(&self, points: &mut [Point], flags: &mut [u8]) -> Option<()> {
+        const XSHORT: u8 = 2;
+        const YSHORT: u8 = 4;
+        const REPEAT: u8 = 8;
+        const XSAME: u8 = 16;
+        const YSAME: u8 = 32;
+        let n_points = self.num_points();
+        if points.len() != n_points || flags.len() != n_points {
+            return None;
+        }
+        let mut cursor = FontData::new(self.glyph_data()).cursor();
+        let mut i = 0;
+        while i < n_points {
+            let flag = cursor.read::<u8>().ok()?;
+            if flag & REPEAT != 0 {
+                let count = (cursor.read::<u8>().ok()? as usize + 1).min(n_points - i);
+                for f in &mut flags[i..i + count] {
+                    *f = flag;
+                }
+                i += count;
+            } else {
+                flags[i] = flag;
+                i += 1;
+            }
+        }
+        let mut v = 0i32;
+        for (&flag, point) in (&flags[..]).iter().zip(&mut points[..]) {
+            let mut delta = 0i32;
+            if flag & XSHORT != 0 {
+                delta = cursor.read::<u8>().ok()? as i32;
+                if flag & XSAME == 0 {
+                    delta = -delta;
+                }
+            } else if flag & XSAME == 0 {
+                delta = cursor.read::<i16>().ok()? as i32;
+            }
+            v += delta;
+            point.x = v;
+        }
+        v = 0;
+        for (flag, point) in (&mut flags[..]).iter_mut().zip(&mut points[..]) {
+            let mut delta = 0i32;
+            let t = *flag;
+            if t & YSHORT != 0 {
+                delta = cursor.read::<u8>().ok()? as i32;
+                if t & YSAME == 0 {
+                    delta = -delta;
+                }
+            } else if t & YSAME == 0 {
+                delta = cursor.read::<i16>().ok()? as i32;
+            }
+            v += delta;
+            point.y = v;
+            *flag &= 1;
+        }
+        Some(())
     }
 
     fn points_impl(&self) -> Option<PointIter<'a>> {
@@ -54,12 +125,28 @@ impl<'a> SimpleGlyph<'a> {
     }
 }
 
-/// Point for a simple glyph.
-#[derive(Clone, Copy, Debug)]
+/// Point in a TrueType outline.
+#[derive(Copy, Clone, PartialEq, Eq, Default, Debug)]
 pub struct Point {
-    /// X component.
+    /// X cooordinate.
+    pub x: i32,
+    /// Y coordinate.
+    pub y: i32,
+}
+
+impl Point {
+    /// Creates a new point with the specified x and y coordinates.
+    pub const fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+}
+
+/// Point with an associated on-curve flag for a simple glyph.
+#[derive(Clone, Copy, Debug)]
+pub struct CurvePoint {
+    /// X cooordinate.
     pub x: i16,
-    /// Y component.
+    /// Y cooordinate.
     pub y: i16,
     /// True if this is an on-curve point.
     pub on_curve: bool,
@@ -78,12 +165,12 @@ struct PointIter<'a> {
 }
 
 impl<'a> Iterator for PointIter<'a> {
-    type Item = Point;
+    type Item = CurvePoint;
     fn next(&mut self) -> Option<Self::Item> {
         self.advance_flags()?;
         self.advance_points();
         self.cur_point = self.cur_point.saturating_add(1);
-        Some(Point {
+        Some(CurvePoint {
             x: self.cur_x,
             y: self.cur_y,
             on_curve: self.cur_flags.contains(SimpleGlyphFlags::ON_CURVE_POINT),
@@ -113,7 +200,8 @@ impl<'a> PointIter<'a> {
                 .contains(SimpleGlyphFlags::REPEAT_FLAG)
                 .then(|| self.flags.read().ok())
                 .flatten()
-                .unwrap_or(0) + 1;
+                .unwrap_or(0)
+                + 1;
         }
         self.flag_repeats -= 1;
         Some(())

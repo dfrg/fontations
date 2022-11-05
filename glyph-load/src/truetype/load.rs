@@ -114,13 +114,23 @@ impl Loader {
                 outline
                     .contours
                     .extend(end_pts.iter().map(|end_pt| end_pt.get()));
-                let mut point_count = outline.contours.last().copied().unwrap_or(0) as usize + 1;
-                for point in simple.points() {
-                    outline
-                        .points
-                        .push(Point::new(point.x as i32, point.y as i32));
-                    outline.tags.push(point.on_curve as u8);
+                let mut point_count = simple.num_points();
+                outline.tags.resize(outline.tags.len() + point_count, 0);
+                outline
+                    .points
+                    .resize(outline.points.len() + point_count, Point::default());
+                if !simple.read_points(
+                    &mut outline.points[point_base..],
+                    &mut outline.tags[point_base..],
+                ) {
+                    return None;
                 }
+                // for point in simple.points() {
+                //     outline
+                //         .points
+                //         .push(Point::new(point.x as i32, point.y as i32));
+                //     outline.tags.push(point.on_curve as u8);
+                // }
                 let ins = simple.instructions();
                 self.push_phantom(state, outline);
                 point_count += 4;

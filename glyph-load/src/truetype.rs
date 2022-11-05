@@ -9,26 +9,7 @@ use super::PathSink;
 
 pub use hint::HinterMode;
 pub use load::{Loader, LoaderState};
-
-/// Point in a TrueType outline.
-///
-/// Note that the coordinates in a point are either in font units or fixed
-/// point (26.6) depending on whether the outline was scaled while loading.
-/// See [Outline::is_scaled].
-#[derive(Copy, Clone, PartialEq, Eq, Default, Debug)]
-pub struct Point {
-    /// X cooordinate.
-    pub x: i32,
-    /// Y coordinate.
-    pub y: i32,
-}
-
-impl Point {
-    /// Creates a new point with the specified x and y coordinates.
-    pub const fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
-    }
-}
+pub use read_fonts::tables::glyf::Point;
 
 /// TrueType outline.
 #[derive(Default, PartialEq, Eq, Debug)]
