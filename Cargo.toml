@@ -4,6 +4,8 @@ members = [
     "read-fonts",
     "font-types",
     "font-codegen",
+    "glyph-load",
     "write-fonts",
     "otexplorer",
+    "glyph-load/ftcmp"
 ]

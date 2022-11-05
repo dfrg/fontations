@@ -1,0 +1,13 @@
+[package]
+name = "glyph-load"
+version = "0.1.0"
+edition = "2021"
+license = "MIT/Apache-2.0"
+description = "Loading glyphs from OpenType font files."
+repository = "https://github.com/googlefonts/fontations"
+readme = "README.md"
+categories = ["text-processing", "parsing", "graphics"]
+
+[dependencies]
+font-types = { version = "0.0.2", path = "../font-types" }
+read-fonts = { version = "0.0.2", path = "../read-fonts" }

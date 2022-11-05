@@ -34,7 +34,7 @@ impl<'a> SimpleGlyph<'a> {
     /// Returns an iterator over the points in the glyph.
     pub fn points(&self) -> impl Iterator<Item = Point> + 'a + Clone {
         self.points_impl()
-            .unwrap_or_else(|| PointIter::new(&[], &[], &[], &[]))
+            .unwrap_or_else(|| PointIter::new(&[], &[], &[]))
     }
 
     fn points_impl(&self) -> Option<PointIter<'a>> {
@@ -50,7 +50,7 @@ impl<'a> SimpleGlyph<'a> {
         let (flags, data) = data.split_at(lens.flags as usize);
         let (x_coords, y_coords) = data.split_at(lens.x_coords as usize);
 
-        Some(PointIter::new(end_points, flags, x_coords, y_coords))
+        Some(PointIter::new(flags, x_coords, y_coords))
     }
 }
 
@@ -67,7 +67,6 @@ pub struct Point {
 
 #[derive(Clone)]
 struct PointIter<'a> {
-    end_points: &'a [BigEndian<u16>],
     cur_point: u16,
     flags: Cursor<'a>,
     x_coords: Cursor<'a>,
@@ -81,12 +80,7 @@ struct PointIter<'a> {
 impl<'a> Iterator for PointIter<'a> {
     type Item = Point;
     fn next(&mut self) -> Option<Self::Item> {
-        let next_end = self.end_points.first()?.get();
-        let is_end = next_end <= self.cur_point; // LE because points could be out of order?
-        if is_end {
-            self.end_points = &self.end_points[1..];
-        }
-        self.advance_flags();
+        self.advance_flags()?;
         self.advance_points();
         self.cur_point = self.cur_point.saturating_add(1);
         Some(Point {
@@ -98,14 +92,8 @@ impl<'a> Iterator for PointIter<'a> {
 }
 
 impl<'a> PointIter<'a> {
-    fn new(
-        end_points: &'a [BigEndian<u16>],
-        flags: &'a [u8],
-        x_coords: &'a [u8],
-        y_coords: &'a [u8],
-    ) -> Self {
+    fn new(flags: &'a [u8], x_coords: &'a [u8], y_coords: &'a [u8]) -> Self {
         Self {
-            end_points,
             flags: FontData::new(flags).cursor(),
             x_coords: FontData::new(x_coords).cursor(),
             y_coords: FontData::new(y_coords).cursor(),
@@ -117,18 +105,18 @@ impl<'a> PointIter<'a> {
         }
     }
 
-    fn advance_flags(&mut self) {
+    fn advance_flags(&mut self) -> Option<()> {
         if self.flag_repeats == 0 {
-            self.cur_flags =
-                SimpleGlyphFlags::from_bits_truncate(self.flags.read().unwrap_or_default());
+            self.cur_flags = SimpleGlyphFlags::from_bits_truncate(self.flags.read().ok()?);
             self.flag_repeats = self
                 .cur_flags
                 .contains(SimpleGlyphFlags::REPEAT_FLAG)
                 .then(|| self.flags.read().ok())
                 .flatten()
-                .unwrap_or(1);
+                .unwrap_or(0) + 1;
         }
         self.flag_repeats -= 1;
+        Some(())
     }
 
     fn advance_points(&mut self) {
@@ -210,10 +198,10 @@ fn resolve_coords_len(data: &[u8], points_total: u16) -> Result<FieldLengths, Re
         let y_long = SimpleGlyphFlags::Y_SHORT_VECTOR
             | SimpleGlyphFlags::Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR;
         x_coords_len += ((flags & x_short).bits() != 0) as u32 * repeats;
-        x_coords_len += ((flags & x_long).bits() == 0) as u32 * repeats;
+        x_coords_len += ((flags & x_long).bits() == 0) as u32 * (repeats * 2);
 
         y_coords_len += ((flags & y_short).bits() != 0) as u32 * repeats;
-        y_coords_len += ((flags & y_long).bits() == 0) as u32 * repeats;
+        y_coords_len += ((flags & y_long).bits() == 0) as u32 * (repeats * 2);
 
         flags_left -= repeats;
     }
@@ -329,15 +317,15 @@ impl Iterator for ComponentIter<'_> {
         self.cur_flags = flags;
         let glyph = self.cursor.read::<GlyphId>().ok()?;
         let args_are_word = flags.contains(CompositeGlyphFlags::ARG_1_AND_2_ARE_WORDS);
-        let are_signed = flags.contains(CompositeGlyphFlags::ARG_1_AND_2_ARE_WORDS);
-        let anchor = match (are_signed, args_are_word) {
+        let args_are_xy_values = flags.contains(CompositeGlyphFlags::ARGS_ARE_XY_VALUES);
+        let anchor = match (args_are_xy_values, args_are_word) {
             (true, true) => Anchor::Offset {
                 x: self.cursor.read().ok()?,
                 y: self.cursor.read().ok()?,
             },
             (true, false) => Anchor::Offset {
-                x: self.cursor.read::<u8>().ok()? as _,
-                y: self.cursor.read::<u8>().ok()? as _,
+                x: self.cursor.read::<i8>().ok()? as _,
+                y: self.cursor.read::<i8>().ok()? as _,
             },
             (false, true) => Anchor::Point {
                 base: self.cursor.read().ok()?,
@@ -420,7 +408,7 @@ mod tests {
         let font = FontRef::new(test_data::test_fonts::COLR_GRADIENT_RECT).unwrap();
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();
-        let glyph = loca.get_glyf(GlyphId::new(0), &glyf).unwrap();
+        let glyph = loca.get_glyf(GlyphId::new(0), &glyf).unwrap().unwrap();
         assert_eq!(glyph.number_of_contours(), 2);
         let simple_glyph = if let Glyph::Simple(simple) = glyph {
             simple
