@@ -187,7 +187,7 @@ pub struct TupleVariation<'a> {
 
 impl<'a> TupleVariation<'a> {
     /// Returns true if this tuple provides deltas for all points in a glyph.
-    pub fn all_points(&self) -> bool {
+    pub fn has_deltas_for_all_points(&self) -> bool {
         self.point_numbers.count() == 0
     }
 

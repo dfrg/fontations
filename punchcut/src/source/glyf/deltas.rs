@@ -1,9 +1,46 @@
 use read_fonts::{
     tables::glyf::{PointFlags, PointMarker},
-    tables::gvar::{GlyphDelta, Gvar},
+    tables::gvar::{GlyphDelta, Gvar, TupleVariation},
     types::{F26Dot6, F2Dot14, Fixed, GlyphId, Point},
     ReadError,
 };
+
+/// The common parts of simple and complex glyph processing
+fn compute_deltas_for_glyph(
+    gvar: &Gvar,
+    glyph_id: GlyphId,
+    coords: &[F2Dot14],
+    deltas: &mut [Point<Fixed>],
+    mut apply_tuple_missing_deltas_fn: impl FnMut(
+        Fixed,
+        TupleVariation,
+        &mut [Point<Fixed>],
+    ) -> Result<(), ReadError>,
+) -> Result<(), ReadError> {
+    for delta in deltas.iter_mut() {
+        *delta = Default::default();
+    }
+    let Ok(var_data) = gvar.glyph_variation_data(glyph_id) else {
+        // Empty variation data for a glyph is not an error.
+        return Ok(());
+    };
+
+    for tuple in var_data.tuples() {
+        let Some(scalar) = tuple.compute_scalar(coords) else {
+            continue;
+        };
+        // Fast path: tuple contains all points, we can simply accumulate the deltas directly.
+        if tuple.has_deltas_for_all_points() {
+            for (delta, tuple_delta) in deltas.iter_mut().zip(tuple.deltas()) {
+                *delta += tuple_delta.apply_scalar(scalar);
+            }
+        } else {
+            // Slow path is, annoyingly, different for simple vs composite so let the caller handle it
+            apply_tuple_missing_deltas_fn(scalar, tuple, deltas)?;
+        }
+    }
+    Ok(())
+}
 
 /// Compute a set of deltas for the component offsets of a composite glyph.
 ///
@@ -15,30 +52,15 @@ pub fn composite_glyph(
     coords: &[F2Dot14],
     deltas: &mut [Point<Fixed>],
 ) -> Result<(), ReadError> {
-    for delta in deltas.iter_mut() {
-        *delta = Default::default();
-    }
-    let Ok(var_data) = gvar.glyph_variation_data(glyph_id) else {
-        // Empty variation data for a glyph is not an error.
-        return Ok(());
-    };
-    for tuple in var_data.tuples() {
-        let Some(scalar) = tuple.compute_scalar(coords) else {
-            continue;
-        };
-        if tuple.all_points() {
-            for (delta, tuple_delta) in deltas.iter_mut().zip(tuple.deltas()) {
+    compute_deltas_for_glyph(gvar, glyph_id, coords, deltas, |scalar, tuple, deltas| {
+        for tuple_delta in tuple.deltas() {
+            let ix = tuple_delta.position as usize;
+            if let Some(delta) = deltas.get_mut(ix) {
                 *delta += tuple_delta.apply_scalar(scalar);
             }
-        } else {
-            for tuple_delta in tuple.deltas() {
-                let ix = tuple_delta.position as usize;
-                if let Some(delta) = deltas.get_mut(ix) {
-                    *delta += tuple_delta.apply_scalar(scalar);
-                }
-            }
         }
-    }
+        Ok(())
+    })?;
     Ok(())
 }
 
@@ -62,13 +84,6 @@ pub fn simple_glyph(
     working_points: &mut [Point<Fixed>],
     deltas: &mut [Point<Fixed>],
 ) -> Result<(), ReadError> {
-    for delta in deltas.iter_mut() {
-        *delta = Default::default();
-    }
-    let Ok(var_data) = gvar.glyph_variation_data(glyph_id) else {
-        // Empty variation data for a glyph is not an error.
-        return Ok(());
-    };
     let SimpleGlyph {
         points,
         flags,
@@ -82,43 +97,34 @@ pub fn simple_glyph(
     } else {
         points.len() - 3
     };
-    for tuple in var_data.tuples() {
-        let Some(scalar) = tuple.compute_scalar(coords) else {
-            continue;
-        };
-        if tuple.all_points() {
-            // When a tuple contains all points, we can simply accumulate the deltas directly.
-            for (delta, tuple_delta) in deltas[0..actual_len].iter_mut().zip(tuple.deltas()) {
-                *delta += tuple_delta.apply_scalar(scalar);
-            }
-        } else {
-            // Otherwise, we need to infer missing deltas by interpolation.
-            // Prepare our working buffer by converting the points to 16.16
-            // and clearing the HAS_DELTA flags.
-            for ((flag, point), working_point) in
-                flags.iter_mut().zip(points).zip(&mut working_points[..])
-            {
-                *working_point = point.map(Fixed::from_i32);
-                flag.clear_marker(PointMarker::HAS_DELTA);
-            }
-            for tuple_delta in tuple.deltas() {
-                let ix = tuple_delta.position as usize;
-                if let (Some(flag), Some(point)) = (flags.get_mut(ix), working_points.get_mut(ix)) {
-                    flag.set_marker(PointMarker::HAS_DELTA);
-                    *point += tuple_delta.apply_scalar(scalar);
-                }
-            }
-            interpolate_deltas(points, flags, contours, &mut working_points[..])
-                .ok_or(ReadError::OutOfBounds)?;
-            for ((delta, point), working_point) in deltas[..actual_len]
-                .iter_mut()
-                .zip(points)
-                .zip(working_points.iter())
-            {
-                *delta += *working_point - point.map(Fixed::from_i32);
+
+    let deltas = &mut deltas[..actual_len];
+    compute_deltas_for_glyph(gvar, glyph_id, coords, deltas, |scalar, tuple, deltas| {
+        // Infer missing deltas by interpolation.
+        // Prepare our working buffer by converting the points to 16.16
+        // and clearing the HAS_DELTA flags.
+        for ((flag, point), working_point) in
+            flags.iter_mut().zip(points).zip(&mut working_points[..])
+        {
+            *working_point = point.map(Fixed::from_i32);
+            flag.clear_marker(PointMarker::HAS_DELTA);
+        }
+        for tuple_delta in tuple.deltas() {
+            let ix = tuple_delta.position as usize;
+            if let (Some(flag), Some(point)) = (flags.get_mut(ix), working_points.get_mut(ix)) {
+                flag.set_marker(PointMarker::HAS_DELTA);
+                *point += tuple_delta.apply_scalar(scalar);
             }
         }
-    }
+        interpolate_deltas(points, flags, contours, &mut working_points[..])
+            .ok_or(ReadError::OutOfBounds)?;
+        for ((delta, point), working_point) in
+            deltas.iter_mut().zip(points).zip(working_points.iter())
+        {
+            *delta += *working_point - point.map(Fixed::from_i32);
+        }
+        Ok(())
+    })?;
     Ok(())
 }
 
