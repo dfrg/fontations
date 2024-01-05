@@ -13,7 +13,7 @@ use super::{
     instance::{
         resolve_clip_box, resolve_paint, ColorStops, ColrInstance, ResolvedColorStop, ResolvedPaint,
     },
-    Brush, ColorPainter, ColorStop, PaintCachedColorGlyph, PaintError,
+    Brush, ColorPainter, ColorStop, PaintCachedColorGlyph, PaintError, Transform,
 };
 
 // Workaround for https://bugs.chromium.org/p/chromium/issues/detail?id=1516634.
@@ -52,7 +52,65 @@ fn make_sorted_resolved_stops(stops: &ColorStops, instance: &ColrInstance) -> Ve
     collected
 }
 
-pub(crate) fn traverse_with_callbacks(
+struct CollectFillGlyphPainter<'a> {
+    brush_transform: Transform,
+    glyph_id: GlyphId,
+    optimizable : bool,
+    parent_painter: &'a mut dyn ColorPainter<'a>,
+}
+
+impl<'a> CollectFillGlyphPainter<'a> {
+    fn new(parent_painter: &'a mut impl ColorPainter<'a>, glyph_id: GlyphId) -> Self {
+        Self {
+            brush_transform: Transform::default(),
+            glyph_id,
+            parent_painter,
+            optimizable : true,
+        }
+    }
+}
+
+impl<'a> ColorPainter<'a> for CollectFillGlyphPainter<'a> {
+    fn push_transform(&mut self, transform: Transform) {
+        self.brush_transform *= transform;
+    }
+
+    fn pop_transform(&mut self) {
+        // Since we only support fill and and transform operations, we need to
+        // ignore a popped transform, as this would be called after traversing
+        // the graph backup after a fill was performed, but we want to preserve
+        // the transform in order to be able to return it.
+    }
+
+    fn fill<'b>(&mut self, brush: Brush<'b>) {
+        if !self.optimizable {
+            return;
+        }
+        self.parent_painter.fill_glyph(self.glyph_id, self.brush_transform.clone(), brush);
+    }
+
+    fn push_clip_glyph(&mut self, _: GlyphId) {
+        self.optimizable = false;
+    }
+
+    fn push_clip_box(&mut self, _: BoundingBox<f32>) {
+        self.optimizable = false;
+    }
+
+    fn pop_clip(&mut self) {
+        self.optimizable = false;
+    }
+
+    fn push_layer(&mut self, _: CompositeMode) {
+        self.optimizable = false;
+    }
+
+    fn pop_layer(&mut self) {
+        self.optimizable = false;
+    }
+}
+
+pub(crate) fn traverse_with_callbacks<'a>(
     paint: &ResolvedPaint,
     instance: &ColrInstance,
     painter: &mut impl ColorPainter,
@@ -460,10 +518,10 @@ pub(crate) fn traverse_with_callbacks(
     }
 }
 
-pub(crate) fn traverse_v0_range(
+pub(crate) fn traverse_v0_range<'a>(
     range: &Range<usize>,
     instance: &ColrInstance,
-    painter: &mut impl ColorPainter,
+    painter: &mut impl ColorPainter<'a>,
 ) -> Result<(), PaintError> {
     for layer_index in range.clone() {
         let (layer_index, palette_index) = (*instance).v0_layer(layer_index)?;

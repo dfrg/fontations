@@ -179,16 +179,33 @@ pub enum Brush<'a> {
 
 /// Signals success of request to draw a COLRv1 sub glyph from cache.
 ///
-/// Result of [`paint_cached_color_glyph`](ColorPainter::paint_cached_color_glyph)
-/// through which the client signals whether a COLRv1 glyph referenced by
-/// another COLRv1 glyph was drawn from cache or whether the glyph's subgraph
-/// should be traversed by the skria side COLRv1 implementation.
+/// Result of
+/// [`paint_cached_color_glyph`](ColorPainter::paint_cached_color_glyph) through
+/// which the client signals whether the optimization function is
+/// implemented. In this case,
+/// [`paint_cached_color_glyph`](ColorPainter::paint_cached_color_glyph) whether
+/// a COLRv1 glyph referenced by another COLRv1 glyph was drawn from cache or
+/// whether the glyph's subgraph should be traversed by the skria side COLRv1
+/// implementation.
 pub enum PaintCachedColorGlyph {
     /// The specified COLRv1 glyph has been successfully painted client side.
     Ok,
     /// The client does not implement drawing COLRv1 glyphs from cache and the
     /// Fontations side COLRv1 implementation is asked to traverse the
     /// respective PaintColorGlyph sub graph.
+    Unimplemented,
+}
+
+/// Signals success of a combined clip and fill operation.
+///
+/// Result of ['fill_glyph'](ColorPainter::fill_glyph) through which the client
+/// signals whether the optimization function is implemented.  In this case,
+/// whether ['fill_glyph'](ColorPainter::fill_glyph) whether a combined clip and
+/// fill operation was performed.
+pub enum FillGlyph {
+    /// The combined clip and fill operation has been performed client side.
+    Ok,
+    /// The client does not implement the combined clip and fill operation.
     Unimplemented,
 }
 
@@ -200,7 +217,7 @@ pub enum PaintCachedColorGlyph {
 /// object. The documentation for each function describes what actions are to be
 /// executed using the client side 2D graphics API, usually by performing some
 /// kind of canvas operation.
-pub trait ColorPainter {
+pub trait ColorPainter<'a> {
     /// Push the specified transform by concatenating it to the current
     /// transformation matrix.
     fn push_transform(&mut self, transform: Transform);
@@ -218,7 +235,18 @@ pub trait ColorPainter {
     fn pop_clip(&mut self);
 
     /// Fill the current clip area with the specified gradient fill.
-    fn fill(&mut self, brush: Brush);
+    fn fill<'b>(&mut self, brush: Brush<'b>);
+
+    /// Combined clip and fill, apply the clip path determined by the specified `glyph_id`,
+    /// then fill it with the specified brush, with applying `brush_transform` to the brush.
+    fn fill_glyph<'b>(
+        &mut self,
+        _glyph_id: GlyphId,
+        _transform: Transform,
+        _brush: Brush<'b>,
+    ) -> Result<FillGlyph, PaintError> {
+        Ok(FillGlyph::Unimplemented)
+    }
 
     /// Optionally implement this method: Draw an unscaled COLRv1 glyph given
     /// the current transformation matrix (as accumulated by
@@ -229,9 +257,6 @@ pub trait ColorPainter {
     ) -> Result<PaintCachedColorGlyph, PaintError> {
         Ok(PaintCachedColorGlyph::Unimplemented)
     }
-
-    // TODO(https://github.com/googlefonts/fontations/issues/746):
-    // Add an optimized callback function combining clip, fill and transforms.
 
     /// Open a new layer, and merge the layer down using `composite_mode` when
     /// [`pop_layer`](ColorPainter::pop_layer) is called, signalling that this layer is done drawing.
@@ -313,7 +338,7 @@ impl<'a> ColorGlyph<'a> {
     pub fn paint(
         &self,
         location: impl Into<LocationRef<'a>>,
-        painter: &mut impl ColorPainter,
+        painter: &mut impl ColorPainter<'a>,
     ) -> Result<(), PaintError> {
         let instance = instance::ColrInstance::new(self.colr.clone(), location.into().coords());
         match &self.root_paint_ref {
