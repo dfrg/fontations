@@ -13,7 +13,7 @@ use super::{
     instance::{
         resolve_clip_box, resolve_paint, ColorStops, ColrInstance, ResolvedColorStop, ResolvedPaint,
     },
-    Brush, ColorPainter, ColorStop, PaintCachedColorGlyph, PaintError, Transform,
+    Brush, ColorPainter, ColorStop, FillGlyph, PaintCachedColorGlyph, PaintError, Transform,
 };
 
 // Workaround for https://bugs.chromium.org/p/chromium/issues/detail?id=1516634.
@@ -55,8 +55,9 @@ fn make_sorted_resolved_stops(stops: &ColorStops, instance: &ColrInstance) -> Ve
 struct CollectFillGlyphPainter<'a> {
     brush_transform: Transform,
     glyph_id: GlyphId,
-    optimizable : bool,
+    optimizable: bool,
     parent_painter: &'a mut dyn ColorPainter<'a>,
+    result: Result<FillGlyph, PaintError>,
 }
 
 impl<'a> CollectFillGlyphPainter<'a> {
@@ -65,8 +66,13 @@ impl<'a> CollectFillGlyphPainter<'a> {
             brush_transform: Transform::default(),
             glyph_id,
             parent_painter,
-            optimizable : true,
+            optimizable: true,
+            result: Ok(FillGlyph::Ok),
         }
+    }
+
+    fn paint_successful(&self) -> bool {
+        self.result.is_ok()
     }
 }
 
@@ -86,7 +92,9 @@ impl<'a> ColorPainter<'a> for CollectFillGlyphPainter<'a> {
         if !self.optimizable {
             return;
         }
-        self.parent_painter.fill_glyph(self.glyph_id, self.brush_transform.clone(), brush);
+        self.result =
+            self.parent_painter
+                .fill_glyph(self.glyph_id, self.brush_transform.clone(), brush);
     }
 
     fn push_clip_glyph(&mut self, _: GlyphId) {
@@ -113,7 +121,7 @@ impl<'a> ColorPainter<'a> for CollectFillGlyphPainter<'a> {
 pub(crate) fn traverse_with_callbacks<'a>(
     paint: &ResolvedPaint,
     instance: &ColrInstance,
-    painter: &mut impl ColorPainter,
+    painter: &'a mut impl ColorPainter,
     visited_set: &mut HashSet<usize, NonRandomHasherState>,
 ) -> Result<(), PaintError> {
     match paint {
@@ -423,15 +431,13 @@ pub(crate) fn traverse_with_callbacks<'a>(
         }
 
         ResolvedPaint::Glyph { glyph_id, paint } => {
-            painter.push_clip_glyph(*glyph_id);
-            let result = traverse_with_callbacks(
-                &resolve_paint(instance, paint)?,
-                instance,
-                painter,
-                visited_set,
-            );
-            painter.pop_clip();
-            result
+                let mut optimizer: CollectFillGlyphPainter<'_> = CollectFillGlyphPainter::new(painter, *glyph_id);
+                traverse_with_callbacks(
+                    &resolve_paint(instance, paint)?,
+                    instance,
+                    &mut optimizer,
+                    visited_set,
+                )
         }
         ResolvedPaint::ColrGlyph { glyph_id } => match (*instance).v1_base_glyph(*glyph_id)? {
             Some((base_glyph, base_glyph_paint_id)) => {
