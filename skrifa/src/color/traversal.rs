@@ -121,7 +121,7 @@ impl<'a> ColorPainter<'a> for CollectFillGlyphPainter<'a> {
 pub(crate) fn traverse_with_callbacks<'a>(
     paint: &ResolvedPaint,
     instance: &ColrInstance,
-    painter: &'a mut impl ColorPainter,
+    painter: &mut impl ColorPainter<'a>,
     visited_set: &mut HashSet<usize, NonRandomHasherState>,
 ) -> Result<(), PaintError> {
     match paint {
@@ -431,7 +431,7 @@ pub(crate) fn traverse_with_callbacks<'a>(
         }
 
         ResolvedPaint::Glyph { glyph_id, paint } => {
-                let mut optimizer: CollectFillGlyphPainter<'_> = CollectFillGlyphPainter::new(painter, *glyph_id);
+                let mut optimizer = CollectFillGlyphPainter::new(painter, *glyph_id);
                 traverse_with_callbacks(
                     &resolve_paint(instance, paint)?,
                     instance,
