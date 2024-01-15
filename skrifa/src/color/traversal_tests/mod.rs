@@ -147,14 +147,28 @@ impl From<Transform> for DumpTransform {
 
 #[derive(Serialize, Deserialize, PartialEq)]
 enum PaintOps {
-    PushTransform { transform: DumpTransform },
+    PushTransform {
+        transform: DumpTransform,
+    },
     PopTransform,
-    PushClipGlyph { gid: u16 },
-    PushClipBox { clip_box: BoundingBox<f32> },
+    PushClipGlyph {
+        gid: u16,
+    },
+    PushClipBox {
+        clip_box: BoundingBox<f32>,
+    },
     PopClip,
-    FillBrush { brush: BrushParams },
-    FillGlyph { gid: u16, transform: DumpTransform, brush: BrushParams },
-    PushLayer { composite_mode: u8 },
+    FillBrush {
+        brush: BrushParams,
+    },
+    FillGlyph {
+        gid: u16,
+        transform: DumpTransform,
+        brush: BrushParams,
+    },
+    PushLayer {
+        composite_mode: u8,
+    },
     PopLayer,
 }
 
@@ -189,15 +203,15 @@ impl ColorPainter<'_> for PaintDump {
     }
 
     fn fill_glyph<'b>(
-            &mut self,
-            glyph_id: GlyphId,
-            transform: Transform,
-            brush: Brush<'b>,
-        ) -> Result<super::FillGlyph, super::PaintError> {
+        &mut self,
+        glyph_id: GlyphId,
+        transform: Transform,
+        brush: Brush<'b>,
+    ) -> Result<super::FillGlyph, super::PaintError> {
         self.ops.push(PaintOps::FillGlyph {
             gid: glyph_id.to_u16(),
             transform: transform.into(),
-            brush: brush.into()
+            brush: brush.into(),
         });
         Ok(super::FillGlyph::Ok)
     }
