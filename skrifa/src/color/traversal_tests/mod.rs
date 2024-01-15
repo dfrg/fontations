@@ -153,11 +153,12 @@ enum PaintOps {
     PushClipBox { clip_box: BoundingBox<f32> },
     PopClip,
     FillBrush { brush: BrushParams },
+    FillGlyph { gid: u16, transform: DumpTransform, brush: BrushParams },
     PushLayer { composite_mode: u8 },
     PopLayer,
 }
 
-impl ColorPainter for PaintDump {
+impl ColorPainter<'_> for PaintDump {
     fn push_transform(&mut self, transform: Transform) {
         self.ops.push(PaintOps::PushTransform {
             transform: transform.into(),
@@ -185,6 +186,20 @@ impl ColorPainter for PaintDump {
         self.ops.push(PaintOps::FillBrush {
             brush: brush.into(),
         });
+    }
+
+    fn fill_glyph<'b>(
+            &mut self,
+            glyph_id: GlyphId,
+            transform: Transform,
+            brush: Brush<'b>,
+        ) -> Result<super::FillGlyph, super::PaintError> {
+        self.ops.push(PaintOps::FillGlyph {
+            gid: glyph_id.to_u16(),
+            transform: transform.into(),
+            brush: brush.into()
+        });
+        Ok(super::FillGlyph::Ok)
     }
 
     fn push_layer(&mut self, composite_mode: CompositeMode) {

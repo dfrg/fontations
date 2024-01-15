@@ -75,7 +75,13 @@ impl<'inner, 'ourborrow> CollectFillGlyphPainter<'inner, 'ourborrow> {
     }
 
     fn paint_successful(&self) -> bool {
-        self.result.is_ok()
+        self.result
+            .as_ref()
+            .map(|paint_result| match paint_result {
+                FillGlyph::Ok => true,
+                _ => false,
+            })
+            .unwrap_or_default()
     }
 }
 

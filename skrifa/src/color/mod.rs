@@ -455,7 +455,7 @@ mod tests {
         }
     }
 
-    impl ColorPainter for DummyColorPainter {
+    impl ColorPainter<'_> for DummyColorPainter {
         fn push_transform(&mut self, _transform: Transform) {}
         fn pop_transform(&mut self) {}
         fn push_clip_glyph(&mut self, _glyph: GlyphId) {}
