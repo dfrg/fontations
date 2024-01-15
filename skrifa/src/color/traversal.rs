@@ -52,7 +52,10 @@ fn make_sorted_resolved_stops(stops: &ColorStops, instance: &ColrInstance) -> Ve
     collected
 }
 
-struct CollectFillGlyphPainter<'inner, 'ourborrow> where 'inner : 'ourborrow {
+struct CollectFillGlyphPainter<'inner, 'ourborrow>
+where
+    'inner: 'ourborrow,
+{
     brush_transform: Transform,
     glyph_id: GlyphId,
     optimizable: bool,
@@ -123,7 +126,10 @@ pub(crate) fn traverse_with_callbacks<'inner, 'ourborrow>(
     instance: &ColrInstance,
     painter: &'ourborrow mut impl ColorPainter<'inner>,
     visited_set: &mut HashSet<usize, NonRandomHasherState>,
-)-> Result<(), PaintError>  where 'inner: 'ourborrow  {
+) -> Result<(), PaintError>
+where
+    'inner: 'ourborrow,
+{
     match paint {
         ResolvedPaint::ColrLayers { range } => {
             for layer_index in range.clone() {
@@ -431,13 +437,24 @@ pub(crate) fn traverse_with_callbacks<'inner, 'ourborrow>(
         }
 
         ResolvedPaint::Glyph { glyph_id, paint } => {
-                let mut optimizer = CollectFillGlyphPainter::new(painter, *glyph_id);
-                traverse_with_callbacks(
+            let mut optimizer = CollectFillGlyphPainter::new(painter, *glyph_id);
+            let mut result = traverse_with_callbacks(
+                &resolve_paint(instance, paint)?,
+                instance,
+                &mut optimizer,
+                visited_set,
+            );
+            if !optimizer.paint_successful() {
+                painter.push_clip_glyph(*glyph_id);
+                result = traverse_with_callbacks(
                     &resolve_paint(instance, paint)?,
                     instance,
-                    &mut optimizer,
+                    painter,
                     visited_set,
-                )
+                );
+                painter.pop_clip();
+            }
+            result
         }
         ResolvedPaint::ColrGlyph { glyph_id } => match (*instance).v1_base_glyph(*glyph_id)? {
             Some((base_glyph, base_glyph_paint_id)) => {
