@@ -172,7 +172,7 @@ enum PaintOps {
     PopLayer,
 }
 
-impl ColorPainter<'_> for PaintDump {
+impl ColorPainter for PaintDump {
     fn push_transform(&mut self, transform: Transform) {
         self.ops.push(PaintOps::PushTransform {
             transform: transform.into(),

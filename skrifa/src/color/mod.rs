@@ -217,7 +217,7 @@ pub enum FillGlyph {
 /// object. The documentation for each function describes what actions are to be
 /// executed using the client side 2D graphics API, usually by performing some
 /// kind of canvas operation.
-pub trait ColorPainter<'a> {
+pub trait ColorPainter {
     /// Push the specified transform by concatenating it to the current
     /// transformation matrix.
     fn push_transform(&mut self, transform: Transform);
@@ -338,7 +338,7 @@ impl<'a> ColorGlyph<'a> {
     pub fn paint(
         &self,
         location: impl Into<LocationRef<'a>>,
-        painter: &mut impl ColorPainter<'a>,
+        painter: &mut impl ColorPainter,
     ) -> Result<(), PaintError> {
         let instance = instance::ColrInstance::new(self.colr.clone(), location.into().coords());
         match &self.root_paint_ref {
@@ -455,7 +455,7 @@ mod tests {
         }
     }
 
-    impl ColorPainter<'_> for DummyColorPainter {
+    impl ColorPainter for DummyColorPainter {
         fn push_transform(&mut self, _transform: Transform) {}
         fn pop_transform(&mut self) {}
         fn push_clip_glyph(&mut self, _glyph: GlyphId) {}

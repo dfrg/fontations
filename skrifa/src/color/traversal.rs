@@ -52,19 +52,16 @@ fn make_sorted_resolved_stops(stops: &ColorStops, instance: &ColrInstance) -> Ve
     collected
 }
 
-struct CollectFillGlyphPainter<'inner, 'ourborrow>
-where
-    'inner: 'ourborrow,
-{
+struct CollectFillGlyphPainter<'a, P> {
     brush_transform: Transform,
     glyph_id: GlyphId,
     optimizable: bool,
-    parent_painter: &'ourborrow mut dyn ColorPainter<'inner>,
+    parent_painter: &'a mut P,
     result: Result<FillGlyph, PaintError>,
 }
 
-impl<'inner, 'ourborrow> CollectFillGlyphPainter<'inner, 'ourborrow> {
-    fn new(parent_painter: &'ourborrow mut impl ColorPainter<'inner>, glyph_id: GlyphId) -> Self {
+impl<'a, P: ColorPainter> CollectFillGlyphPainter<'a, P> {
+    fn new(parent_painter: &'a mut P, glyph_id: GlyphId) -> Self {
         Self {
             brush_transform: Transform::default(),
             glyph_id,
@@ -85,7 +82,7 @@ impl<'inner, 'ourborrow> CollectFillGlyphPainter<'inner, 'ourborrow> {
     }
 }
 
-impl<'inner, 'ourborrow> ColorPainter<'ourborrow> for CollectFillGlyphPainter<'inner, 'ourborrow> {
+impl<'a, P: ColorPainter> ColorPainter for CollectFillGlyphPainter<'a, P> {
     fn push_transform(&mut self, transform: Transform) {
         self.brush_transform *= transform;
     }
@@ -127,15 +124,12 @@ impl<'inner, 'ourborrow> ColorPainter<'ourborrow> for CollectFillGlyphPainter<'i
     }
 }
 
-pub(crate) fn traverse_with_callbacks<'inner, 'ourborrow>(
+pub(crate) fn traverse_with_callbacks(
     paint: &ResolvedPaint,
     instance: &ColrInstance,
-    painter: &'ourborrow mut impl ColorPainter<'inner>,
+    painter: &mut impl ColorPainter,
     visited_set: &mut HashSet<usize, NonRandomHasherState>,
-) -> Result<(), PaintError>
-where
-    'inner: 'ourborrow,
-{
+) -> Result<(), PaintError> {
     match paint {
         ResolvedPaint::ColrLayers { range } => {
             for layer_index in range.clone() {
@@ -547,10 +541,10 @@ where
     }
 }
 
-pub(crate) fn traverse_v0_range<'a>(
+pub(crate) fn traverse_v0_range(
     range: &Range<usize>,
     instance: &ColrInstance,
-    painter: &mut impl ColorPainter<'a>,
+    painter: &mut impl ColorPainter,
 ) -> Result<(), PaintError> {
     for layer_index in range.clone() {
         let (layer_index, palette_index) = (*instance).v0_layer(layer_index)?;
