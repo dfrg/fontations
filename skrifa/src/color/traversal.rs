@@ -52,16 +52,16 @@ fn make_sorted_resolved_stops(stops: &ColorStops, instance: &ColrInstance) -> Ve
     collected
 }
 
-struct CollectFillGlyphPainter<'a> {
+struct CollectFillGlyphPainter<'inner, 'ourborrow> where 'inner : 'ourborrow {
     brush_transform: Transform,
     glyph_id: GlyphId,
     optimizable: bool,
-    parent_painter: &'a mut dyn ColorPainter<'a>,
+    parent_painter: &'ourborrow mut dyn ColorPainter<'inner>,
     result: Result<FillGlyph, PaintError>,
 }
 
-impl<'a> CollectFillGlyphPainter<'a> {
-    fn new(parent_painter: &'a mut impl ColorPainter<'a>, glyph_id: GlyphId) -> Self {
+impl<'inner, 'ourborrow> CollectFillGlyphPainter<'inner, 'ourborrow> {
+    fn new(parent_painter: &'ourborrow mut impl ColorPainter<'inner>, glyph_id: GlyphId) -> Self {
         Self {
             brush_transform: Transform::default(),
             glyph_id,
@@ -76,7 +76,7 @@ impl<'a> CollectFillGlyphPainter<'a> {
     }
 }
 
-impl<'a> ColorPainter<'a> for CollectFillGlyphPainter<'a> {
+impl<'inner, 'ourborrow> ColorPainter<'ourborrow> for CollectFillGlyphPainter<'inner, 'ourborrow> {
     fn push_transform(&mut self, transform: Transform) {
         self.brush_transform *= transform;
     }
@@ -118,12 +118,12 @@ impl<'a> ColorPainter<'a> for CollectFillGlyphPainter<'a> {
     }
 }
 
-pub(crate) fn traverse_with_callbacks<'a>(
+pub(crate) fn traverse_with_callbacks<'inner, 'ourborrow>(
     paint: &ResolvedPaint,
     instance: &ColrInstance,
-    painter: &mut impl ColorPainter<'a>,
+    painter: &'ourborrow mut impl ColorPainter<'inner>,
     visited_set: &mut HashSet<usize, NonRandomHasherState>,
-) -> Result<(), PaintError> {
+)-> Result<(), PaintError>  where 'inner: 'ourborrow  {
     match paint {
         ResolvedPaint::ColrLayers { range } => {
             for layer_index in range.clone() {
